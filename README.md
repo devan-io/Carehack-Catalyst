@@ -1,2 +1,2 @@
 # Carehack-Catalyst
-A project focused on building a game for Carehack.
+A project focused on building an inclusive game for Carehack.
