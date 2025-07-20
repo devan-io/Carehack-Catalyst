@@ -12,12 +12,30 @@
             <h1>🎮 Welcome to</h1>
             <h2>The Whispering Entrance</h2>
         </header>
-	</div>
 
-	<div id="game-menu" class="game-screen active">
-		<p>Choose a mode to begin:</p>
-		<button id="voice-mode" class="mode-btn">🎤 Voice Gameplay</button>
-		<button id="normal-mode" class="mode-btn">🕹️ Normal Gameplay</button>
-    </div>
+		<div id="game-menu" class="game-screen active">
+			<p>Choose a mode to begin:</p>
+			<button id="voice-mode" class="mode-btn">🎤 Voice Gameplay</button>
+			<button id="normal-mode" class="mode-btn">🕹️ Normal Gameplay</button>
+		</div>
+
+		<div id="game-area" class="game-screen">
+			<div id="narrator-text"></div>
+			<div id="game-controls">
+				<div id="voice-controls" class="controls hidden">
+					<button id="listen-btn" class="control-btn">🎤 Listen</button>
+					<div id="voice-status">Say your command...</div>
+					<div id="voice-feedback"></div>
+				</div>
+				<div id="button-controls" class="controls hidden">
+					<div id="choice-buttons"></div>
+				</div>
+			</div>
+			<div id="game-status"></div>
+			<button id="restart-btn" class="control-btn hidden">🔄 Restart Game</button>
+		</div>
+			
+		<div id="audio-container"></div>
+	</div>
 </body>
 </html>

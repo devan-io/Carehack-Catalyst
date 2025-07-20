@@ -70,3 +70,76 @@ h2 {
     transform: translateY(-2px);
     box-shadow: 0 5px 15px rgba(233, 69, 96, 0.4);
 }
+
+.controls {
+    margin: 2rem 0;
+}
+
+.controls.hidden {
+    display: none;
+}
+
+.control-btn {
+    padding: 0.8rem 1.5rem;
+    margin: 0.5rem;
+    font-size: 1rem;
+    background: #e94560;
+    color: white;
+    border: none;
+    border-radius: 8px;
+    cursor: pointer;
+    transition: all 0.3s ease;
+}
+
+.control-btn:hover:not(:disabled) {
+    background: #d63447;
+    transform: translateY(-1px);
+}
+
+.control-btn:disabled {
+    background: #666;
+    cursor: not-allowed;
+}
+
+.success {
+    background: rgba(46, 204, 113, 0.3);
+    color: #2ecc71;
+}
+
+.error {
+    background: rgba(231, 76, 60, 0.3);
+    color: #e74c3c;
+}
+
+.hidden {
+    display: none !important;
+}
+
+/* Accessibility improvements */
+@media (prefers-reduced-motion: reduce) {
+    * {
+        animation-duration: 0.01ms !important;
+        animation-iteration-count: 1 !important;
+        transition-duration: 0.01ms !important;
+    }
+}
+
+/* Mobile responsiveness */
+@media (max-width: 768px) {
+    .container {
+        padding: 1rem;
+    }
+    
+    h1 {
+        font-size: 2rem;
+    }
+    
+    h2 {
+        font-size: 1.5rem;
+    }
+    
+    #narrator-text {
+        padding: 1.5rem;
+        font-size: 1rem;
+    }
+}
