@@ -15,6 +15,7 @@ class WhisperingEntranceGame {
         this.audioElements = {};
         this.speechSynth = window.speechSynthesis;
         this.selectedVoice = null;
+        this.hasStarted = false; // NEW: Track if user has pressed a key
         this.voiceSettings = {
             rate: 0.9,
             pitch: 1.1,
@@ -68,15 +69,16 @@ class WhisperingEntranceGame {
     }
 
     init() {
-        this.setupEventListeners();
         this.initializeAudio();
         this.selectRandomVoice();
-        setTimeout(() => {
-            this.announceGameStart();
-        }, 1000);
+        this.setupEventListeners(); // MODIFIED: Setup key listener first
         if ('webkitSpeechRecognition' in window || 'SpeechRecognition' in window) {
             this.setupSpeechRecognition();
         }
+        // NEW: Start with audio prompt to press any key
+        setTimeout(() => {
+            this.announceKeyPrompt();
+        }, 1000);
     }
 
     selectRandomVoice() {
@@ -121,6 +123,21 @@ class WhisperingEntranceGame {
         }
     }
 
+    // NEW: Audio prompt for key press
+    announceKeyPrompt() {
+        const keyPromptText = "Press any key to start.";
+        this.speakAndThen(keyPromptText, () => {
+            // NEW: 5-second buffer for user to press a key
+            setTimeout(() => {
+                if (!this.hasStarted) {
+                    // If no key pressed after 5 seconds, proceed to normal game start
+                    this.announceGameStart();
+                }
+            }, 5000);
+        });
+    }
+
+    // MODIFIED: This now proceeds with original voice/normal mode selection
     announceGameStart() {
         const welcomeText = "Welcome to The Whispering Entrance, an audio adventure game. Say voice mode for voice gameplay, or normal mode for button controls.";
         this.speakAndThen(welcomeText, () => {
@@ -206,7 +223,26 @@ class WhisperingEntranceGame {
         return debugDiv;
     }
 
+    // MODIFIED: Setup key listener but proceed to normal flow after key press
     setupEventListeners() {
+        // NEW: Listen for ANY key press to activate audio
+        const handleFirstKeyPress = (event) => {
+            if (!this.hasStarted) {
+                this.hasStarted = true;
+                // Remove this listener after first use
+                document.removeEventListener('keydown', handleFirstKeyPress);
+                
+                // Initialize audio context and proceed to normal flow
+                this.initializeAudioContext().then(() => {
+                    // If user pressed key before timeout, proceed to game start
+                    this.announceGameStart();
+                });
+            }
+        };
+        
+        document.addEventListener('keydown', handleFirstKeyPress);
+
+        // Original event listeners for buttons
         document.getElementById('voice-mode').addEventListener('click', () => {
             this.speak("Voice mode selected. Starting adventure.", true);
             setTimeout(() => this.startGame('voice'), 2000);
@@ -399,7 +435,6 @@ class WhisperingEntranceGame {
         }
     }
 
-    
     clearHealthDisplay() {
         document.getElementById('game-status').textContent = '';
     }
@@ -434,7 +469,6 @@ class WhisperingEntranceGame {
             console.log('Sequence playback complete - prompting for first tone');
             this.speakAndThen('Sequence complete. What was the first tone?', () => {
                 console.log('Prompt complete - starting auto listen');
-                
                 this.playListenCue(() => {
                     this.startAutoListen(0);
                 });
@@ -485,7 +519,6 @@ class WhisperingEntranceGame {
                 setTimeout(() => this.startGame('normal'), 2000);
             } else {
                 this.speak('Say "voice mode" or "normal mode" to begin.');
-                
                 this.playListenCue(() => {
                     this.startAutoListen(3500);
                 });
@@ -555,7 +588,6 @@ class WhisperingEntranceGame {
 
     handlePuzzleCommand(command) {
         console.log(`Handling puzzle command: "${command}" for step ${this.playerSequence.length + 1}`);
-        const validTones = ['high', 'low', 'medium'];
         
         let recognizedTone = null;
         if (command.includes('high') || command.includes('hi')) {
@@ -573,7 +605,6 @@ class WhisperingEntranceGame {
             if (this.playerSequence.length < 3) {
                 const nextPrompt = this.playerSequence.length === 1 ? "What was the second tone?" : "And the final tone?";
                 this.speakAndThen(`Got it. ${nextPrompt}`, () => {
-                    
                     this.playListenCue(() => {
                         this.startAutoListen(0);
                     });
@@ -591,7 +622,6 @@ class WhisperingEntranceGame {
             ];
             const currentPrompt = prompts[this.playerSequence.length];
             this.speakAndThen(`Sorry, I didn't catch that. ${currentPrompt}`, () => {
-                
                 this.playListenCue(() => {
                     this.startAutoListen(0);
                 });
@@ -654,7 +684,6 @@ class WhisperingEntranceGame {
                 this.playErrorSound();
                 const northText = "Heavy echoes suggest a dead end. Echo chirps nervously, guiding you back. Try a different path.";
                 this.speakAndThen(northText, () => {
-                    
                     this.playListenCue(() => {
                         this.startAutoListen(0);
                     });
@@ -750,7 +779,6 @@ class WhisperingEntranceGame {
         } else {
             const continueText = resultText + ` The battle continues! Your health: ${this.playerHealth}. Goblin health: ${this.goblinHealth}. What's your next move?`;
             this.speakAndThen(continueText, () => {
-                
                 this.playListenCue(() => {
                     this.startAutoListen(0);
                 });
@@ -785,7 +813,6 @@ class WhisperingEntranceGame {
         setTimeout(() => this.playChime([523.25, 587.33, 659.25, 698.46, 783.99]), 100);
     }
 
-    
     playChime(frequencies, callback) {
         if (!this.audioContext) {
             if (callback) callback();
@@ -807,11 +834,10 @@ class WhisperingEntranceGame {
                 oscillator.start(this.audioContext.currentTime);
                 oscillator.stop(this.audioContext.currentTime + 0.3);
                 
-                // Execute callback when last tone finishes
                 oscillator.onended = () => {
                     completedTones++;
                     if (completedTones === totalTones && callback) {
-                        setTimeout(callback, 100); 
+                        setTimeout(callback, 100);
                     }
                 };
             }, index * 100);
@@ -828,12 +854,12 @@ class WhisperingEntranceGame {
         document.getElementById('game-area').classList.remove('active');
         document.getElementById('game-menu').classList.add('active');
         document.getElementById('restart-btn').classList.add('hidden');
-        
         this.clearHealthDisplay();
         this.currentArea = 0;
         this.playerSequence = [];
         this.currentSequence = [];
         this.gameMode = null;
+        this.hasStarted = false; // NEW: Reset for restart
         
         this.selectRandomVoice();
         
@@ -841,8 +867,11 @@ class WhisperingEntranceGame {
         if (debugDiv) {
             debugDiv.innerHTML = '';
         }
+        
+        // Re-setup key listener and start with key prompt again
+        this.setupEventListeners();
         setTimeout(() => {
-            this.announceGameStart();
+            this.announceKeyPrompt();
         }, 1000);
     }
 }
