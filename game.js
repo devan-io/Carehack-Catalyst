@@ -15,7 +15,9 @@ class WhisperingEntranceGame {
         this.audioElements = {};
         this.speechSynth = window.speechSynthesis;
         this.selectedVoice = null;
-        this.hasStarted = false; // NEW: Track if user has pressed a key
+        this.hasStarted = false;
+        this.welcomeTriggered = false; // NEW: Prevent multiple welcome triggers
+        this.gameKeyListener = null; // NEW: Store game key listener reference
         this.voiceSettings = {
             rate: 0.9,
             pitch: 1.1,
@@ -71,11 +73,10 @@ class WhisperingEntranceGame {
     init() {
         this.initializeAudio();
         this.selectRandomVoice();
-        this.setupEventListeners(); // MODIFIED: Setup key listener first
+        this.setupEventListeners();
         if ('webkitSpeechRecognition' in window || 'SpeechRecognition' in window) {
             this.setupSpeechRecognition();
         }
-        // NEW: Start with audio prompt to press any key
         setTimeout(() => {
             this.announceKeyPrompt();
         }, 1000);
@@ -123,22 +124,21 @@ class WhisperingEntranceGame {
         }
     }
 
-    // NEW: Audio prompt for key press
     announceKeyPrompt() {
         const keyPromptText = "Press any key to start.";
         this.speakAndThen(keyPromptText, () => {
-            // NEW: 5-second buffer for user to press a key
             setTimeout(() => {
                 if (!this.hasStarted) {
-                    // If no key pressed after 5 seconds, proceed to normal game start
                     this.announceGameStart();
                 }
             }, 5000);
         });
     }
 
-    // MODIFIED: This now proceeds with original voice/normal mode selection
     announceGameStart() {
+        if (this.welcomeTriggered) return; // FIXED: Prevent multiple welcome messages
+        this.welcomeTriggered = true;
+        
         const welcomeText = "Welcome to The Whispering Entrance, an audio adventure game. Say voice mode for voice gameplay, or normal mode for button controls.";
         this.speakAndThen(welcomeText, () => {
             this.playListenCue(() => {
@@ -149,9 +149,7 @@ class WhisperingEntranceGame {
 
     playListenCue(callback) {
         setTimeout(() => {
-            this.playChime([330, 440], () => {
-                if (callback) callback();
-            });
+            this.playChime([330, 440], callback);
         }, 100);
     }
 
@@ -197,7 +195,11 @@ class WhisperingEntranceGame {
         this.autoListenTimeout = setTimeout(() => {
             if (!this.isListening && !this.isSpeaking) {
                 console.log('Starting auto-listen');
-                this.recognition.start();
+                try {
+                    this.recognition.start();
+                } catch (error) {
+                    console.error('Speech recognition start error:', error);
+                }
             }
         }, delay);
     }
@@ -223,37 +225,148 @@ class WhisperingEntranceGame {
         return debugDiv;
     }
 
-    // MODIFIED: Setup key listener but proceed to normal flow after key press
+    // FIXED: Separate initial key listener from game key listener
     setupEventListeners() {
-        // NEW: Listen for ANY key press to activate audio
-        const handleFirstKeyPress = (event) => {
-            if (!this.hasStarted) {
+        const handleInitialKeyPress = (event) => {
+            if (!this.hasStarted && !this.welcomeTriggered) {
                 this.hasStarted = true;
-                // Remove this listener after first use
-                document.removeEventListener('keydown', handleFirstKeyPress);
+                document.removeEventListener('keydown', handleInitialKeyPress);
                 
-                // Initialize audio context and proceed to normal flow
                 this.initializeAudioContext().then(() => {
-                    // If user pressed key before timeout, proceed to game start
                     this.announceGameStart();
+                    // Setup game key listener after welcome
+                    this.setupGameKeyListener();
                 });
             }
         };
         
-        document.addEventListener('keydown', handleFirstKeyPress);
+        document.addEventListener('keydown', handleInitialKeyPress);
 
-        // Original event listeners for buttons
-        document.getElementById('voice-mode').addEventListener('click', () => {
-            this.speak("Voice mode selected. Starting adventure.", true);
-            setTimeout(() => this.startGame('voice'), 2000);
-        });
-        document.getElementById('normal-mode').addEventListener('click', () => {
-            this.speak("Normal mode selected. Starting adventure.", true);
-            setTimeout(() => this.startGame('normal'), 2000);
-        });
-        document.getElementById('restart-btn').addEventListener('click', () => {
-            this.restartGame();
-        });
+        // Button event listeners with null checks
+        const voiceModeBtn = document.getElementById('voice-mode');
+        const normalModeBtn = document.getElementById('normal-mode');
+        const restartBtn = document.getElementById('restart-btn');
+        
+        if (voiceModeBtn) {
+            voiceModeBtn.addEventListener('click', () => {
+                this.speak("Voice mode selected. Starting adventure.", true);
+                setTimeout(() => this.startGame('voice'), 2000);
+            });
+        }
+        
+        if (normalModeBtn) {
+            normalModeBtn.addEventListener('click', () => {
+                this.speak("Normal mode selected. Starting adventure.", true);
+                setTimeout(() => this.startGame('normal'), 2000);
+            });
+        }
+        
+        if (restartBtn) {
+            restartBtn.addEventListener('click', () => {
+                this.restartGame();
+            });
+        }
+    }
+
+    // NEW: Separate game key listener
+    setupGameKeyListener() {
+        this.gameKeyListener = (event) => {
+            if (this.gameMode === 'normal' && this.hasStarted) {
+                this.handleKeyboardInput(event);
+            }
+        };
+        document.addEventListener('keydown', this.gameKeyListener);
+    }
+
+    // ENHANCED: Better keyboard input handling with debounce
+    handleKeyboardInput(event) {
+        const key = event.key.toLowerCase();
+        const area = this.gameAreas[this.currentArea];
+        
+        // Prevent default for game keys
+        const gameKeys = ['1', '2', '3', '4', '5', 'c', 'e', 'n', 'a', 'd', 'h', 'l', 'm', 'r', 'x', ' '];
+        if (gameKeys.includes(key)) {
+            event.preventDefault();
+        }
+
+        // FIXED: Add debounce to prevent multiple rapid key presses
+        if (this.keyDebounce) return;
+        this.keyDebounce = true;
+        setTimeout(() => { this.keyDebounce = false; }, 300);
+
+        switch (area.name) {
+            case 'introduction':
+                if (key === 'c' || key === '1') {
+                    this.handleChoice('nextArea');
+                }
+                break;
+            case 'echoes_of_entry':
+                if (key === 'e' || key === '1') {
+                    this.handleChoice('chooseEast');
+                } else if (key === 'n' || key === '2') {
+                    this.handleChoice('chooseNorth');
+                }
+                break;
+            case 'puzzle_door':
+                if (key === 'h' || key === '1') {
+                    this.handlePuzzleKeyboard('high');
+                } else if (key === 'l' || key === '2') {
+                    this.handlePuzzleKeyboard('low');
+                } else if (key === 'm' || key === '3') {
+                    this.handlePuzzleKeyboard('medium');
+                } else if (key === ' ') {
+                    this.handleChoice('playSequence');
+                }
+                break;
+            case 'battle':
+                if (key === 'a' || key === '1') {
+                    this.handleChoice('attack');
+                } else if (key === 'd' || key === '2') {
+                    this.handleChoice('defend');
+                }
+                break;
+            case 'conclusion':
+                if (key === 'r' || key === '1') {
+                    this.handleChoice('restart');
+                } else if (key === 'x' || key === '2') {
+                    this.handleChoice('exit');
+                }
+                break;
+        }
+    }
+
+    // FIXED: Enhanced puzzle keyboard with better timing and audio validation
+    handlePuzzleKeyboard(tone) {
+        // Validate tone input
+        const validTones = ['high', 'low', 'medium'];
+        if (!validTones.includes(tone)) {
+            this.speak('Invalid tone. Please use high, low, or medium.');
+            return;
+        }
+
+        setTimeout(() => {
+            this.playerSequence.push(tone);
+            
+            // FIXED: Better audio context validation
+            if (this.audioContext && this.audioContext.state === 'running') {
+                this.playTone(tone);
+            } else {
+                this.speak(`${tone} tone`, false);
+            }
+
+            if (this.playerSequence.length < 3) {
+                const nextPrompt = this.playerSequence.length === 1 ? "Second tone?" : "Final tone?";
+                setTimeout(() => {
+                    this.speak(`Got it. ${nextPrompt}`);
+                }, 800); // Wait for tone to finish
+            } else {
+                setTimeout(() => {
+                    this.speakAndThen(`You entered: ${this.playerSequence.join(', ')}. Checking...`, () => {
+                        this.checkSequence();
+                    }, 500);
+                }, 800);
+            }
+        }, 150); // Small delay to ensure proper sequencing
     }
 
     initializeAudio() {
@@ -264,58 +377,83 @@ class WhisperingEntranceGame {
         }
     }
 
+    // ENHANCED: Better speech recognition error handling
     setupSpeechRecognition() {
-        const SpeechRecognition = window.SpeechRecognition || window.webkitSpeechRecognition;
-        this.recognition = new SpeechRecognition();
-        this.recognition.continuous = false;
-        this.recognition.interimResults = false;
-        this.recognition.lang = 'en-US';
-        this.recognition.onstart = () => {
-            this.isListening = true;
-            document.getElementById('voice-status').textContent = 'Listening...';
-            console.log('Speech recognition started');
-        };
-        this.recognition.onend = () => {
-            this.isListening = false;
-            document.getElementById('voice-status').textContent = 'Ready...';
-            console.log('Speech recognition ended');
-            if (this.gameMode === 'voice' && !this.isSpeaking) {
-                this.playListenCue(() => {
-                    this.startAutoListen(3500);
-                });
-            }
-        };
-        this.recognition.onresult = (event) => {
-            const command = event.results[0][0].transcript.toLowerCase().trim();
-            console.log('Recognized speech:', command);
-            this.displayUserSpeech(command);
-            this.processVoiceCommand(command);
-        };
-        this.recognition.onerror = (event) => {
-            console.error('Speech recognition error:', event.error);
-            this.displayUserSpeech(`[ERROR: ${event.error}]`);
-            if (event.error !== 'no-speech' && event.error !== 'aborted') {
-                this.speak("Sorry, I didn't catch that. Please try again.");
-            }
-            if (this.gameMode === 'voice') {
-                this.playListenCue(() => {
-                    this.startAutoListen(3500);
-                });
-            }
-        };
+        try {
+            const SpeechRecognition = window.SpeechRecognition || window.webkitSpeechRecognition;
+            this.recognition = new SpeechRecognition();
+            this.recognition.continuous = false;
+            this.recognition.interimResults = false;
+            this.recognition.lang = 'en-US';
+            
+            this.recognition.onstart = () => {
+                this.isListening = true;
+                const statusEl = document.getElementById('voice-status');
+                if (statusEl) statusEl.textContent = 'Listening...';
+            };
+            
+            this.recognition.onend = () => {
+                this.isListening = false;
+                const statusEl = document.getElementById('voice-status');
+                if (statusEl) statusEl.textContent = 'Ready...';
+                
+                if (this.gameMode === 'voice' && !this.isSpeaking && this.hasStarted) {
+                    this.playListenCue(() => {
+                        this.startAutoListen(3500);
+                    });
+                }
+            };
+            
+            this.recognition.onresult = (event) => {
+                if (event.results && event.results[0] && event.results[0][0]) {
+                    const command = event.results[0][0].transcript.toLowerCase().trim();
+                    this.displayUserSpeech(command);
+                    this.processVoiceCommand(command);
+                }
+            };
+            
+            this.recognition.onerror = (event) => {
+                console.error('Speech recognition error:', event.error);
+                this.displayUserSpeech(`[ERROR: ${event.error}]`);
+                
+                // Don't restart on certain errors
+                const nonRecoverableErrors = ['not-allowed', 'service-not-allowed'];
+                if (nonRecoverableErrors.includes(event.error)) {
+                    this.speak("Speech recognition is not available. Please use normal mode.");
+                    return;
+                }
+                
+                if (event.error !== 'no-speech' && event.error !== 'aborted') {
+                    this.speak("Sorry, I didn't catch that. Please try again.");
+                }
+                
+                if (this.gameMode === 'voice' && this.hasStarted) {
+                    this.playListenCue(() => {
+                        this.startAutoListen(3500);
+                    });
+                }
+            };
+        } catch (error) {
+            console.error('Speech recognition setup failed:', error);
+        }
     }
 
     async initializeAudioContext() {
         if (!this.audioContext) {
             try {
                 this.audioContext = new(window.AudioContext || window.webkitAudioContext)();
-                if (this.audioContext.state === 'suspended') {
-                    await this.audioContext.resume();
-                    console.log('Audio context resumed');
-                }
-                console.log('Audio context initialized:', this.audioContext.state);
             } catch (e) {
                 console.error('Web Audio API not supported:', e);
+                return;
+            }
+        }
+        
+        if (this.audioContext.state === 'suspended') {
+            try {
+                await this.audioContext.resume();
+                console.log('Audio context resumed');
+            } catch (e) {
+                console.error('Failed to resume AudioContext:', e);
             }
         }
     }
@@ -327,28 +465,34 @@ class WhisperingEntranceGame {
         this.playerHealth = 3;
         this.battleTurn = 0;
         this.initializeAudioContext();
-        document.getElementById('game-menu').classList.remove('active');
-        document.getElementById('game-area').classList.add('active');
+        
+        const gameMenu = document.getElementById('game-menu');
+        const gameArea = document.getElementById('game-area');
+        const voiceControls = document.getElementById('voice-controls');
+        const buttonControls = document.getElementById('button-controls');
+        const listenBtn = document.getElementById('listen-btn');
+        
+        if (gameMenu) gameMenu.classList.remove('active');
+        if (gameArea) gameArea.classList.add('active');
+        
         if (mode === 'voice') {
-            document.getElementById('voice-controls').classList.remove('hidden');
-            document.getElementById('button-controls').classList.add('hidden');
-            document.getElementById('listen-btn').style.display = 'none';
+            if (voiceControls) voiceControls.classList.remove('hidden');
+            if (buttonControls) buttonControls.classList.add('hidden');
+            if (listenBtn) listenBtn.style.display = 'none';
         } else {
-            document.getElementById('voice-controls').classList.add('hidden');
-            document.getElementById('button-controls').classList.remove('hidden');
+            if (voiceControls) voiceControls.classList.add('hidden');
+            if (buttonControls) buttonControls.classList.remove('hidden');
         }
         this.loadArea();
     }
 
     playTone(type) {
-        console.log('Attempting to play tone:', type);
         if (!this.audioContext) {
-            console.error('Audio context not initialized');
             this.initializeAudioContext();
             return;
         }
+        
         if (this.audioContext.state === 'suspended') {
-            console.log('Resuming suspended audio context');
             this.audioContext.resume().then(() => {
                 this.playToneInternal(type);
             });
@@ -357,11 +501,23 @@ class WhisperingEntranceGame {
         }
     }
 
+    // FIXED: Enhanced tone playing with better error handling and validation
     playToneInternal(type) {
         try {
+            if (!this.audioContext || this.audioContext.state !== 'running') {
+                console.warn('Audio context not running, using speech fallback');
+                this.speak(`${type} tone`, false);
+                return;
+            }
+
             const oscillator = this.audioContext.createOscillator();
             const gainNode = this.audioContext.createGain();
             const frequencies = { 'high': 880, 'medium': 440, 'low': 220 };
+            
+            if (!frequencies[type]) {
+                throw new Error(`Invalid tone type: ${type}`);
+            }
+            
             oscillator.connect(gainNode);
             gainNode.connect(this.audioContext.destination);
             oscillator.frequency.setValueAtTime(frequencies[type], this.audioContext.currentTime);
@@ -370,17 +526,20 @@ class WhisperingEntranceGame {
             gainNode.gain.exponentialRampToValueAtTime(0.01, this.audioContext.currentTime + 0.8);
             oscillator.start(this.audioContext.currentTime);
             oscillator.stop(this.audioContext.currentTime + 0.8);
+            
             console.log(`Successfully played ${type} tone at ${frequencies[type]}Hz`);
         } catch (error) {
             console.error('Error playing tone:', error);
-            this.speak(`${type} tone`, true);
+            this.speak(`${type} tone`, false);
         }
     }
 
     loadArea() {
         const area = this.gameAreas[this.currentArea];
-        document.getElementById('narrator-text').textContent = area.text;
+        const narratorText = document.getElementById('narrator-text');
+        if (narratorText) narratorText.textContent = area.text;
         this.playAmbientSound(area.audio);
+        
         if (this.gameMode === 'voice') {
             let fullNarration = area.text;
             switch (area.name) {
@@ -420,14 +579,16 @@ class WhisperingEntranceGame {
             this.speak(area.text);
             setTimeout(() => {
                 this.createChoiceButtons();
-                this.announceButtonOptions();
+                this.announceKeyboardOptions();
             }, this.calculateSpeechDuration(area.text) + 1000);
         }
+        
         if (area.name === 'battle') {
             this.updateBattleStatus();
         }
         if (area.name === 'conclusion') {
-            document.getElementById('restart-btn').classList.remove('hidden');
+            const restartBtn = document.getElementById('restart-btn');
+            if (restartBtn) restartBtn.classList.remove('hidden');
             this.clearHealthDisplay();
         }
         if (area.name === 'exit_screen') {
@@ -435,29 +596,64 @@ class WhisperingEntranceGame {
         }
     }
 
+    announceKeyboardOptions() {
+        const area = this.gameAreas[this.currentArea];
+        let keyboardText = "";
+        
+        switch (area.name) {
+            case 'introduction':
+                keyboardText = "Press C or 1 to continue.";
+                break;
+            case 'echoes_of_entry':
+                keyboardText = "Press E or 1 for East, N or 2 for North.";
+                break;
+            case 'puzzle_door':
+                keyboardText = "Press Space to listen to sequence. Then use H or 1 for High, L or 2 for Low, M or 3 for Medium.";
+                break;
+            case 'battle':
+                keyboardText = "Press A or 1 to Attack, D or 2 to Defend.";
+                break;
+            case 'conclusion':
+                keyboardText = "Press R or 1 to restart, X or 2 to exit.";
+                break;
+        }
+        
+        if (keyboardText) {
+            setTimeout(() => {
+                this.speak(keyboardText);
+            }, 500);
+        }
+    }
+
     clearHealthDisplay() {
-        document.getElementById('game-status').textContent = '';
+        const gameStatus = document.getElementById('game-status');
+        if (gameStatus) gameStatus.textContent = '';
     }
 
     stopListening() {
         clearTimeout(this.autoListenTimeout);
         if (this.recognition && this.isListening) {
-            this.recognition.stop();
+            try {
+                this.recognition.stop();
+            } catch (error) {
+                console.error('Error stopping speech recognition:', error);
+            }
         }
         this.isListening = false;
-        document.getElementById('voice-status').textContent = 'Game ended';
+        const voiceStatus = document.getElementById('voice-status');
+        if (voiceStatus) voiceStatus.textContent = 'Game ended';
     }
 
+    // FIXED: Enhanced sequence playing with better timing
     playSequence() {
-        console.log('=== PLAYING SEQUENCE ===');
         if (!this.currentSequence.length) {
-            console.log('No sequence found, generating new one');
             this.generateToneSequence();
         }
         this.playerSequence = [];
-        console.log('Player sequence reset for new puzzle attempt.');
         clearTimeout(this.autoListenTimeout);
-        let delay = 0;
+        
+        // FIXED: More reliable sequence timing
+        let delay = 500; // Initial delay
         this.currentSequence.forEach((tone, index) => {
             setTimeout(() => {
                 console.log(`Playing tone ${index + 1}/${this.currentSequence.length}: ${tone}`);
@@ -465,14 +661,17 @@ class WhisperingEntranceGame {
             }, delay);
             delay += 1500;
         });
+        
         setTimeout(() => {
-            console.log('Sequence playback complete - prompting for first tone');
-            this.speakAndThen('Sequence complete. What was the first tone?', () => {
-                console.log('Prompt complete - starting auto listen');
-                this.playListenCue(() => {
-                    this.startAutoListen(0);
+            if (this.gameMode === 'voice') {
+                this.speakAndThen('Sequence complete. What was the first tone?', () => {
+                    this.playListenCue(() => {
+                        this.startAutoListen(0);
+                    });
                 });
-            }, 0);
+            } else {
+                this.speak('Sequence complete. Enter the tones using H, L, M or numbers 1, 2, 3.');
+            }
         }, delay + 500);
     }
 
@@ -494,6 +693,8 @@ class WhisperingEntranceGame {
     createChoiceButtons() {
         const area = this.gameAreas[this.currentArea];
         const buttonsContainer = document.getElementById('choice-buttons');
+        if (!buttonsContainer) return;
+        
         buttonsContainer.innerHTML = '';
         area.choices.forEach((choice) => {
             const button = document.createElement('button');
@@ -507,7 +708,8 @@ class WhisperingEntranceGame {
     }
 
     processVoiceCommand(command) {
-        console.log('Processing command:', command);
+        if (!command || command.trim() === '') return;
+        
         const area = this.gameAreas[this.currentArea];
 
         if (!this.gameMode) {
@@ -587,8 +789,6 @@ class WhisperingEntranceGame {
     }
 
     handlePuzzleCommand(command) {
-        console.log(`Handling puzzle command: "${command}" for step ${this.playerSequence.length + 1}`);
-        
         let recognizedTone = null;
         if (command.includes('high') || command.includes('hi')) {
             recognizedTone = 'high';
@@ -629,27 +829,31 @@ class WhisperingEntranceGame {
         }
     }
 
+    // FIXED: Better sequence checking with validation
     checkSequence() {
-        console.log('=== SEQUENCE CHECK ===');
         console.log('Player sequence:', this.playerSequence);
         console.log('Correct sequence:', this.currentSequence);
 
-        let isCorrect = this.playerSequence.length === this.currentSequence.length;
-        if (isCorrect) {
-            for (let i = 0; i < 3; i++) {
-                if (this.playerSequence[i] !== this.currentSequence[i]) {
-                    isCorrect = false;
-                    break;
-                }
+        if (this.playerSequence.length !== 3 || this.currentSequence.length !== 3) {
+            this.speak('Invalid sequence length. Let\'s try again.');
+            this.playSequence();
+            return;
+        }
+
+        let isCorrect = true;
+        for (let i = 0; i < 3; i++) {
+            if (this.playerSequence[i] !== this.currentSequence[i]) {
+                isCorrect = false;
+                break;
             }
         }
 
-        console.log('Sequences match:', isCorrect);
         if (isCorrect) {
             this.playSuccessSound();
             const successText = "Perfect! The stone door rumbles open with a warm chime. The passage beyond awaits.";
             this.speak(successText);
-            document.getElementById('narrator-text').textContent = successText;
+            const narratorText = document.getElementById('narrator-text');
+            if (narratorText) narratorText.textContent = successText;
             setTimeout(() => {
                 this.currentArea++;
                 this.loadArea();
@@ -678,17 +882,21 @@ class WhisperingEntranceGame {
                     this.currentArea++;
                     this.loadArea();
                 });
-                document.getElementById('narrator-text').textContent += "\n\n" + eastText;
+                const narratorText = document.getElementById('narrator-text');
+                if (narratorText) narratorText.textContent += "\n\n" + eastText;
                 break;
             case 'chooseNorth':
                 this.playErrorSound();
                 const northText = "Heavy echoes suggest a dead end. Echo chirps nervously, guiding you back. Try a different path.";
                 this.speakAndThen(northText, () => {
-                    this.playListenCue(() => {
-                        this.startAutoListen(0);
-                    });
+                    if (this.gameMode === 'voice') {
+                        this.playListenCue(() => {
+                            this.startAutoListen(0);
+                        });
+                    }
                 });
-                document.getElementById('narrator-text').textContent += "\n\n" + northText;
+                const narratorText2 = document.getElementById('narrator-text');
+                if (narratorText2) narratorText2.textContent += "\n\n" + northText;
                 break;
             case 'attack':
                 this.handleBattleAction('attack');
@@ -724,6 +932,7 @@ class WhisperingEntranceGame {
         console.log('Generated new sequence:', this.currentSequence);
     }
 
+    // ENHANCED: Better battle logic with mutual death retry
     handleBattleAction(action) {
         this.battleTurn++;
         const goblinActions = ['attack', 'defend'];
@@ -751,15 +960,28 @@ class WhisperingEntranceGame {
             }
         }
 
-        document.getElementById('narrator-text').textContent = resultText;
+        const narratorText = document.getElementById('narrator-text');
+        if (narratorText) narratorText.textContent = resultText;
         this.updateBattleStatus();
 
+        // FIXED: Mutual death retry logic
         if (this.goblinHealth <= 0 && this.playerHealth <= 0) {
-            this.playVictorySound();
-            const drawText = resultText + " In a final heroic effort, both you and the goblin fall! But your courage prevails - you have won through sacrifice!";
+            this.playErrorSound();
+            const drawText = resultText + " In a final clash, both you and the goblin fall! The ancient magic of the abyss revives you both for another chance. The fight begins anew!";
             this.speakAndThen(drawText, () => {
-                this.currentArea++;
-                this.loadArea();
+                this.goblinHealth = 3;
+                this.playerHealth = 3;
+                this.battleTurn = 0;
+                this.updateBattleStatus();
+                
+                const retryText = "Both fighters stand again, ready for battle! What's your move?";
+                this.speakAndThen(retryText, () => {
+                    if (this.gameMode === 'voice') {
+                        this.playListenCue(() => {
+                            this.startAutoListen(0);
+                        });
+                    }
+                });
             });
         } else if (this.goblinHealth <= 0) {
             this.playVictorySound();
@@ -771,24 +993,30 @@ class WhisperingEntranceGame {
         } else if (this.playerHealth <= 0) {
             const defeatText = resultText + " The goblin's claws find their mark. You collapse defeated. Say restart to try again.";
             this.speakAndThen(defeatText, () => {
-                document.getElementById('restart-btn').classList.remove('hidden');
-                this.playListenCue(() => {
-                    this.startAutoListen(3500);
-                });
+                const restartBtn = document.getElementById('restart-btn');
+                if (restartBtn) restartBtn.classList.remove('hidden');
+                if (this.gameMode === 'voice') {
+                    this.playListenCue(() => {
+                        this.startAutoListen(3500);
+                    });
+                }
             });
         } else {
             const continueText = resultText + ` The battle continues! Your health: ${this.playerHealth}. Goblin health: ${this.goblinHealth}. What's your next move?`;
             this.speakAndThen(continueText, () => {
-                this.playListenCue(() => {
-                    this.startAutoListen(0);
-                });
+                if (this.gameMode === 'voice') {
+                    this.playListenCue(() => {
+                        this.startAutoListen(0);
+                    });
+                }
             });
         }
     }
 
     updateBattleStatus() {
-        const statusText = `Your Health: ${'❤️'.repeat(this.playerHealth)} | Goblin Health: ${'👹'.repeat(this.goblinHealth)}`;
-        document.getElementById('game-status').textContent = statusText;
+        const statusText = `Your Health: ${'❤️'.repeat(Math.max(0, this.playerHealth))} | Goblin Health: ${'👹'.repeat(Math.max(0, this.goblinHealth))}`;
+        const gameStatus = document.getElementById('game-status');
+        if (gameStatus) gameStatus.textContent = statusText;
     }
 
     playSuccessSound() { 
@@ -813,53 +1041,85 @@ class WhisperingEntranceGame {
         setTimeout(() => this.playChime([523.25, 587.33, 659.25, 698.46, 783.99]), 100);
     }
 
+    // ENHANCED: Improved chime playing with better error handling
     playChime(frequencies, callback) {
         if (!this.audioContext) {
             if (callback) callback();
             return;
         }
         
-        let completedTones = 0;
-        const totalTones = frequencies.length;
-        
-        frequencies.forEach((freq, index) => {
-            setTimeout(() => {
-                const oscillator = this.audioContext.createOscillator();
-                const gainNode = this.audioContext.createGain();
-                oscillator.connect(gainNode);
-                gainNode.connect(this.audioContext.destination);
-                oscillator.frequency.setValueAtTime(freq, this.audioContext.currentTime);
-                gainNode.gain.setValueAtTime(0.2, this.audioContext.currentTime);
-                gainNode.gain.exponentialRampToValueAtTime(0.01, this.audioContext.currentTime + 0.3);
-                oscillator.start(this.audioContext.currentTime);
-                oscillator.stop(this.audioContext.currentTime + 0.3);
-                
-                oscillator.onended = () => {
-                    completedTones++;
-                    if (completedTones === totalTones && callback) {
-                        setTimeout(callback, 100);
+        try {
+            let completedTones = 0;
+            const totalTones = frequencies.length;
+            
+            frequencies.forEach((freq, index) => {
+                setTimeout(() => {
+                    try {
+                        const oscillator = this.audioContext.createOscillator();
+                        const gainNode = this.audioContext.createGain();
+                        oscillator.connect(gainNode);
+                        gainNode.connect(this.audioContext.destination);
+                        oscillator.frequency.setValueAtTime(freq, this.audioContext.currentTime);
+                        gainNode.gain.setValueAtTime(0.2, this.audioContext.currentTime);
+                        gainNode.gain.exponentialRampToValueAtTime(0.01, this.audioContext.currentTime + 0.3);
+                        oscillator.start(this.audioContext.currentTime);
+                        oscillator.stop(this.audioContext.currentTime + 0.3);
+                        
+                        oscillator.onended = () => {
+                            completedTones++;
+                            if (completedTones === totalTones && callback) {
+                                setTimeout(callback, 100);
+                            }
+                        };
+                    } catch (error) {
+                        console.error('Error playing chime tone:', error);
+                        completedTones++;
+                        if (completedTones === totalTones && callback) {
+                            setTimeout(callback, 100);
+                        }
                     }
-                };
-            }, index * 100);
-        });
+                }, index * 100);
+            });
+        } catch (error) {
+            console.error('Error in playChime:', error);
+            if (callback) callback();
+        }
     }
 
     playAmbientSound(soundType) {
         console.log(`Playing ambient sound: ${soundType}`);
     }
 
+    // ENHANCED: Better cleanup on restart
     restartGame() {
         clearTimeout(this.autoListenTimeout);
         this.speechSynth.cancel();
-        document.getElementById('game-area').classList.remove('active');
-        document.getElementById('game-menu').classList.add('active');
-        document.getElementById('restart-btn').classList.add('hidden');
+        
+        // Clean up event listeners
+        if (this.gameKeyListener) {
+            document.removeEventListener('keydown', this.gameKeyListener);
+            this.gameKeyListener = null;
+        }
+        
+        // Reset UI elements
+        const gameArea = document.getElementById('game-area');
+        const gameMenu = document.getElementById('game-menu');
+        const restartBtn = document.getElementById('restart-btn');
+        
+        if (gameArea) gameArea.classList.remove('active');
+        if (gameMenu) gameMenu.classList.add('active');
+        if (restartBtn) restartBtn.classList.add('hidden');
+        
         this.clearHealthDisplay();
+        
+        // Reset game state
         this.currentArea = 0;
         this.playerSequence = [];
         this.currentSequence = [];
         this.gameMode = null;
-        this.hasStarted = false; // NEW: Reset for restart
+        this.hasStarted = false;
+        this.welcomeTriggered = false;
+        this.keyDebounce = false;
         
         this.selectRandomVoice();
         
@@ -868,7 +1128,6 @@ class WhisperingEntranceGame {
             debugDiv.innerHTML = '';
         }
         
-        // Re-setup key listener and start with key prompt again
         this.setupEventListeners();
         setTimeout(() => {
             this.announceKeyPrompt();
